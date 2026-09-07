@@ -125,6 +125,16 @@
   #customMg { width: 92px; }
 
   /* --- Log --- */
+  .past-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; }
+  .pf { display: flex; flex-direction: column; gap: 4px; font-size: .78rem; color: var(--muted); }
+  .pf input, .pf select {
+    font: inherit; font-size: .95rem; color: var(--text); width: 100%;
+    padding: 8px 10px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg);
+  }
+  .past-note { font-size: .8rem; color: var(--muted); margin: 0; }
+  .past-note.ok { color: var(--good); }
+  .past-note.err { color: var(--over); }
+
   .log { list-style: none; margin: 0; padding: 0; }
   .log li {
     display: flex; align-items: center; gap: 12px;
@@ -228,6 +238,24 @@
       <input type="number" id="customMg" placeholder="mg" min="0" max="1000" step="1">
       <button class="btn" id="customAdd">Log it</button>
       <button class="btn btn-quiet" id="customCancel">Cancel</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Add an earlier drink</h2>
+    <div class="past-grid">
+      <label class="pf"><span>Date</span><input type="date" id="pastDate"></label>
+      <label class="pf"><span>Time</span><input type="time" id="pastTime"></label>
+      <label class="pf"><span>Drink</span><select id="pastDrink"></select></label>
+      <label class="pf"><span>How many</span><input type="number" id="pastQty" min="1" max="20" step="1" value="1"></label>
+    </div>
+    <div class="row" id="pastCustomRow" style="margin-top:10px" hidden>
+      <input type="text" id="pastName" placeholder="Drink name" maxlength="30">
+      <input type="number" id="pastMg" placeholder="mg each" min="0" max="1000" step="1">
+    </div>
+    <div class="row" style="margin-top:12px; align-items:center">
+      <button class="btn" id="pastAdd">Add to log</button>
+      <p class="past-note" id="pastNote"></p>
     </div>
   </section>
 
@@ -626,13 +654,27 @@
       deltaText = "—";
     }
 
-    // Consecutive days at or under the cup limit, counting back from today.
+    // Consecutive days at or under the cup limit, counting back from today —
+    // but only as far as the first drink ever logged, otherwise a blank
+    // history would claim a year-long streak of days that never happened.
+    var earliest = Infinity;
+    live().forEach(function (e) {
+      var t = new Date(e.ts).getTime();
+      if (t < earliest) earliest = t;
+    });
+
     var streak = 0;
-    for (var i = 0; i < 365; i++) {
-      var count = entriesOn(dayKey(daysAgo(i))).length;
-      if (i === 0 && count === 0 && new Date().getHours() < 12) continue; // don't credit a morning that hasn't happened yet
-      if (count <= settings.cupLimit) streak++;
-      else break;
+    if (isFinite(earliest)) {
+      var firstDay = new Date(earliest);
+      firstDay.setHours(0, 0, 0, 0);
+      for (var i = 0; i < 366; i++) {
+        var day = daysAgo(i);
+        if (day.getTime() < firstDay.getTime()) break;
+        var count = entriesOn(dayKey(day)).length;
+        if (i === 0 && count === 0 && new Date().getHours() < 12) continue; // don't credit a morning that hasn't happened yet
+        if (count <= settings.cupLimit) streak++;
+        else break;
+      }
     }
 
     var host = $("stats");
@@ -738,6 +780,75 @@
       write(STORE_ENTRIES, entries);
       render();
       Sync.soon();
+    });
+  }
+
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+  function bindPastForm() {
+    var sel = $("pastDrink");
+
+    DRINKS.forEach(function (drink, i) {
+      var opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = drink.name + " · " + drink.mg + " mg";
+      sel.appendChild(opt);
+    });
+    var other = document.createElement("option");
+    other.value = "custom";
+    other.textContent = "Something else…";
+    sel.appendChild(other);
+
+    sel.addEventListener("change", function () {
+      $("pastCustomRow").hidden = sel.value !== "custom";
+    });
+
+    function note(text, kind) {
+      var el = $("pastNote");
+      el.textContent = text || "";
+      el.className = "past-note" + (kind ? " " + kind : "");
+    }
+
+    function resetWhen() {
+      var now = new Date();
+      $("pastDate").value = dayKey(now);
+      $("pastDate").max = dayKey(now);
+      $("pastTime").value = pad(now.getHours()) + ":" + pad(now.getMinutes());
+    }
+    resetWhen();
+
+    $("pastAdd").addEventListener("click", function () {
+      var date = $("pastDate").value;
+      var time = $("pastTime").value;
+      if (!date || !time) { note("Pick a date and a time first.", "err"); return; }
+
+      // "2026-09-05T08:30" parses as local time, which is what was meant.
+      var when = new Date(date + "T" + time);
+      if (isNaN(when.getTime())) { note("That date and time don't look right.", "err"); return; }
+      if (when.getTime() > Date.now() + 60000) { note("That's in the future — log it when you drink it.", "err"); return; }
+
+      var qty = Math.min(20, Math.max(1, Math.round(Number($("pastQty").value) || 1)));
+      var name, mg;
+      if (sel.value === "custom") {
+        name = $("pastName").value.trim() || "Coffee";
+        mg = Math.max(0, Math.round(Number($("pastMg").value) || 0));
+      } else {
+        var drink = DRINKS[Number(sel.value)];
+        name = drink.name;
+        mg = drink.mg;
+      }
+
+      for (var i = 0; i < qty; i++) {
+        entries.push(normalise({ id: newId(), ts: when.toISOString(), name: name, mg: mg, updated: Date.now() }));
+      }
+      write(STORE_ENTRIES, entries);
+      render();
+      Sync.soon();
+
+      var isToday = dayKey(when) === dayKey(new Date());
+      note("Added " + qty + " × " + name + " · " + when.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" }) +
+           ", " + timeOfDay(when) + (isToday ? "." : " — see the 14-day chart."), "ok");
+      $("pastQty").value = 1;
     });
   }
 
@@ -905,6 +1016,7 @@
   window.__coffee = { mergeEntries: mergeEntries, rowsToPush: rowsToPush, normalise: normalise };
 
   renderDrinkButtons();
+  bindPastForm();
   bindCustomForm();
   bindSettings();
   render();

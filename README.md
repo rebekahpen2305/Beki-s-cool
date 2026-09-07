@@ -20,6 +20,8 @@ Export/Import.
 
 - **One-tap logging** — 11 preset drinks with typical caffeine amounts, plus a custom
   option for anything else.
+- **Backfilling** — add a drink you forgot, at whatever date and time you actually had
+  it, several at once if need be. Backdated drinks sync like any other.
 - **Today at a glance** — cups against your daily limit, total caffeine, and how long ago
   the last one was.
 - **Still in your system** — estimates the caffeine left in you right now, and how much
