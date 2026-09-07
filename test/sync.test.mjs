@@ -1,10 +1,17 @@
-// Tests for the sync merge logic. Run: node test/sync.test.mjs
+// Tests for the sync merge logic.
+//
+//   npm install --no-save playwright-core
+//   npx playwright install chromium     # or set CHROME_PATH to an existing Chrome
+//   node test/sync.test.mjs
+//
+// The logic under test lives in index.html, so the tests drive a real browser
+// rather than duplicating it here.
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 
-const CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-const page = await (await chromium.launch({ executablePath: CHROME })).newPage();
+const CHROME = process.env.CHROME_PATH || undefined;
+const page = await (await chromium.launch(CHROME ? { executablePath: CHROME } : {})).newPage();
 await page.goto('file://' + new URL('../index.html', import.meta.url).pathname);
 
 const call = (fn, ...args) =>
