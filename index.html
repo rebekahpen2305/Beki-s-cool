@@ -196,7 +196,7 @@
   .sync-status { font-size: .8rem; color: var(--muted); margin: 10px 0 0; min-height: 1.2em; }
   .sync-status.err { color: var(--over); }
   .sync-status.ok { color: var(--good); }
-  #syncEmail { flex: 1 1 180px; min-width: 0; }
+  #syncEmail, #syncPassword { flex: 1 1 150px; min-width: 0; }
   footer { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 28px; }
 </style>
 </head>
@@ -294,10 +294,14 @@
     <div class="sync" id="syncSection" hidden>
       <div class="sync-head">Sync across devices</div>
       <div id="syncSignedOut">
-        <p class="hint" style="margin-top:0">Sign in and your log follows you to any device. A one-time link gets emailed to you — no password.</p>
+        <p class="hint" style="margin-top:0">Sign in and your log follows you to any device.</p>
         <div class="row">
           <input type="email" id="syncEmail" placeholder="you@example.com" autocomplete="email">
-          <button class="btn" id="syncSend">Email me a link</button>
+          <input type="password" id="syncPassword" placeholder="Password" autocomplete="current-password">
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="syncSignIn">Sign in</button>
+          <button class="btn btn-quiet" id="syncSend">Email me a link instead</button>
         </div>
       </div>
       <div id="syncSignedIn" hidden>
@@ -323,7 +327,7 @@
   <footer id="footNote">Everything is stored in this browser only — nothing is uploaded anywhere.</footer>
 </div>
 
-<script src="config.js?v=2"></script>
+<script src="config.js?v=3"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.js"></script>
 <script>
 (function () {
@@ -981,6 +985,28 @@
         if (user) run(false);
       });
 
+      async function signInWithPassword() {
+        var email = $("syncEmail").value.trim();
+        var password = $("syncPassword").value;
+        if (!email || !password) { status("Enter your email and password.", "err"); return; }
+        status("Signing in…");
+        var res = await client.auth.signInWithPassword({ email: email, password: password });
+        if (!res.error) { $("syncPassword").value = ""; return; }
+
+        var msg = res.error.message || String(res.error);
+        if (/invalid login credentials/i.test(msg)) {
+          msg = "Email or password not recognised. Create the login in Supabase under Authentication → Users → Add user.";
+        } else if (/email not confirmed/i.test(msg)) {
+          msg = "That account isn't confirmed. In Supabase, delete it and add it again with Auto Confirm User ticked.";
+        }
+        status(msg, "err");
+      }
+
+      $("syncSignIn").addEventListener("click", signInWithPassword);
+      ["syncEmail", "syncPassword"].forEach(function (id) {
+        $(id).addEventListener("keydown", function (e) { if (e.key === "Enter") signInWithPassword(); });
+      });
+
       $("syncSend").addEventListener("click", async function () {
         var email = $("syncEmail").value.trim();
         if (!email) { status("Enter your email address first.", "err"); return; }
@@ -989,7 +1015,11 @@
           email: email,
           options: { emailRedirectTo: location.origin + location.pathname }
         });
-        status(res.error ? "Couldn't send: " + res.error.message : "Check your inbox for the link.", res.error ? "err" : "ok");
+        var problem = res.error && res.error.message;
+        if (problem && /rate limit/i.test(problem)) {
+          problem = "Supabase's built-in email service allows only a couple of messages an hour. Sign in with a password instead, or wait an hour.";
+        }
+        status(problem ? "Couldn't send: " + problem : "Check your inbox for the link.", problem ? "err" : "ok");
       });
 
       $("syncNow").addEventListener("click", function () { run(true); });
