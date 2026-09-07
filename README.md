@@ -44,8 +44,11 @@ your phone *and* your laptop, connect a free [Supabase](https://supabase.com) pr
    site's address (e.g. `https://<username>.github.io/<repo>/`) to **Redirect URLs**.
 4. **Paste your keys.** From **Settings → API**, copy the Project URL and the `anon`
    public key into `config.js`.
-5. Reload the tracker, open **Settings & data**, and sign in with your email. A one-time
-   link arrives in your inbox — no password to remember.
+5. Bump the version on the `config.js` script tag in `index.html` (`?v=2` to `?v=3`,
+   and so on). Browsers cache `config.js` aggressively, and without this a stale
+   copy will keep the Sync section hidden with no explanation.
+6. Reload the tracker, open **Settings & data**, and sign in with your email. A one-time
+   A one-time link arrives in your inbox — no password to remember.
 
 Do the same on your other device and the two keep themselves in step.
 
