@@ -49,8 +49,23 @@ your phone *and* your laptop, connect a free [Supabase](https://supabase.com) pr
 5. Bump the version on the `config.js` script tag in `index.html` (`?v=2` to `?v=3`,
    and so on). Browsers cache `config.js` aggressively, and without this a stale
    copy will keep the Sync section hidden with no explanation.
-6. Reload the tracker, open **Settings & data**, and sign in with your email. A one-time
-   A one-time link arrives in your inbox — no password to remember.
+6. **Create your login.** In Supabase go to **Authentication → Users → Add user →
+   Create new user**, enter an email and password, and tick **Auto Confirm User**.
+   Repeat for anyone else who wants their own log.
+7. Reload the tracker, open **Settings & data**, and sign in with that email and password.
+
+### Why not magic links?
+
+There is an "Email me a link instead" button, and it works — but Supabase's built-in
+email service only sends a couple of messages an hour, shared across the whole project,
+so it rate-limits almost immediately when more than one person is trying. Passwords
+avoid email altogether. If you would rather have magic links, connect your own SMTP
+provider under **Authentication → Emails → SMTP Settings** and the limit lifts.
+
+### Each person gets their own log
+
+Row-level security scopes every row to whoever wrote it, so two people signing in to the
+same site see two separate logs. There is no shared mode.
 
 Do the same on your other device and the two keep themselves in step.
 
