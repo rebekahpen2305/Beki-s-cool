@@ -8,6 +8,6 @@
 // only grants what the row-level security policies in supabase/schema.sql
 // allow, which is "your own rows, once signed in".
 window.COFFEE_CONFIG = {
-  supabaseUrl: "",
-  supabaseAnonKey: ""
+  supabaseUrl: "https://iqxwyxsvbqfdzqhblyrl.supabase.co/rest/v1/",
+  supabaseAnonKey: "sb_publishable_PO9rQlGz5aVUE-DxBOcKSw_-lNvrMHW"
 };
