@@ -8,7 +8,8 @@ storage — nothing is ever uploaded.
 
 ## Use it
 
-Open `index.html` in any browser. That's it.
+Open `index.html` in any browser. That's it. To sync between devices, see
+[Syncing between devices](#syncing-between-devices-optional) below.
 
 To have it on your phone, publish it with GitHub Pages (**Settings → Pages → Deploy from
 branch → `main` / root**) and add the URL to your home screen. Note that the data is tied
@@ -29,6 +30,45 @@ Export/Import.
   days at or under your limit.
 - **Your own limits** — set the cup limit, caffeine limit, and bedtime in Settings.
 - **Export / import** — your whole history as JSON, so you can back it up or move browsers.
+
+## Syncing between devices (optional)
+
+Out of the box there is no server: your log lives in one browser. If you want it on
+your phone *and* your laptop, connect a free [Supabase](https://supabase.com) project.
+
+1. **Create a project** at [supabase.com](https://supabase.com) — the free tier is far
+   more than this needs.
+2. **Create the table.** Open the project's **SQL Editor**, paste in
+   [`supabase/schema.sql`](supabase/schema.sql), and run it.
+3. **Allow your site to sign in.** Under **Authentication → URL Configuration**, add your
+   site's address (e.g. `https://<username>.github.io/<repo>/`) to **Redirect URLs**.
+4. **Paste your keys.** From **Settings → API**, copy the Project URL and the `anon`
+   public key into `config.js`.
+5. Reload the tracker, open **Settings & data**, and sign in with your email. A one-time
+   link arrives in your inbox — no password to remember.
+
+Do the same on your other device and the two keep themselves in step.
+
+### Is it safe to commit those keys?
+
+Yes. The `anon` key is designed to be public — it is in the page source of every Supabase
+site. What protects your data is the **row-level security** policy in `schema.sql`, which
+restricts every query to rows whose `user_id` matches the signed-in user. Without a valid
+session that key can read nothing at all.
+
+Do **not** commit the `service_role` key. That one bypasses row-level security entirely,
+and this app never needs it.
+
+### How syncing behaves
+
+- **Offline first.** Drinks are written to this browser immediately and uploaded
+  afterwards, so logging works with no signal and catches up later.
+- **Last write wins.** Each drink carries a timestamp; when two devices disagree about
+  the same drink, the more recent edit is kept.
+- **Deletes stick.** A deleted drink is kept as a tombstone rather than simply removed,
+  so a deletion on your phone doesn't reappear from your laptop on the next sync.
+- Sync runs on sign-in, shortly after each change, when the tab regains focus, when the
+  network returns, and every five minutes.
 
 ## Cutting down
 

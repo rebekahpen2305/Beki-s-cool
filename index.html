@@ -181,6 +181,12 @@
   .field label { font-size: .92rem; }
   .field input { width: 108px; }
   .hint { color: var(--muted); font-size: .8rem; margin: 10px 0 0; }
+  .sync { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
+  .sync-head { font-size: .92rem; font-weight: 600; margin-bottom: 4px; }
+  .sync-status { font-size: .8rem; color: var(--muted); margin: 10px 0 0; min-height: 1.2em; }
+  .sync-status.err { color: var(--over); }
+  .sync-status.ok { color: var(--good); }
+  #syncEmail { flex: 1 1 180px; min-width: 0; }
   footer { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 28px; }
 </style>
 </head>
@@ -257,6 +263,27 @@
       <input type="time" id="setBed">
     </div>
     <p class="hint">Health authorities generally treat 400&nbsp;mg/day as the upper limit for most healthy adults. To cut down gently, drop your limit by one cup every week or two rather than quitting cold — it keeps the headaches away.</p>
+    <div class="sync" id="syncSection" hidden>
+      <div class="sync-head">Sync across devices</div>
+      <div id="syncSignedOut">
+        <p class="hint" style="margin-top:0">Sign in and your log follows you to any device. A one-time link gets emailed to you — no password.</p>
+        <div class="row">
+          <input type="email" id="syncEmail" placeholder="you@example.com" autocomplete="email">
+          <button class="btn" id="syncSend">Email me a link</button>
+        </div>
+      </div>
+      <div id="syncSignedIn" hidden>
+        <div class="field" style="padding-top:0">
+          <span id="syncWho"></span>
+          <span class="row">
+            <button class="btn" id="syncNow">Sync now</button>
+            <button class="btn btn-quiet" id="syncOut">Sign out</button>
+          </span>
+        </div>
+      </div>
+      <p class="sync-status" id="syncStatus"></p>
+    </div>
+
     <div class="row row-end" style="margin-top:14px">
       <button class="btn" id="exportBtn">Export JSON</button>
       <button class="btn" id="importBtn">Import</button>
@@ -265,9 +292,11 @@
     </div>
   </details>
 
-  <footer>Everything is stored in this browser only — nothing is uploaded anywhere.</footer>
+  <footer id="footNote">Everything is stored in this browser only — nothing is uploaded anywhere.</footer>
 </div>
 
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.58.0/dist/umd/supabase.js"></script>
 <script>
 (function () {
   "use strict";
@@ -312,7 +341,24 @@
     }
   }
 
-  var entries = read(STORE_ENTRIES, []);
+  // Every entry carries `deleted` (a tombstone, so deletions sync) and
+  // `updated` (a client clock; the higher value wins when two devices differ).
+  function normalise(e) {
+    return {
+      id: String(e.id),
+      ts: e.ts,
+      name: String(e.name || "Coffee"),
+      mg: Number(e.mg) || 0,
+      deleted: !!e.deleted,
+      updated: typeof e.updated === "number" ? e.updated : (Date.parse(e.ts) || Date.now())
+    };
+  }
+
+  var entries = read(STORE_ENTRIES, []).map(normalise);
+
+  function live() {
+    return entries.filter(function (e) { return !e.deleted; });
+  }
   var settings = Object.assign({}, DEFAULT_SETTINGS, read(STORE_SETTINGS, {}));
 
   // ---------- dates ----------
@@ -347,7 +393,7 @@
   // ---------- data helpers ----------
 
   function entriesOn(key) {
-    return entries.filter(function (e) { return dayKey(new Date(e.ts)) === key; });
+    return live().filter(function (e) { return dayKey(new Date(e.ts)) === key; });
   }
 
   function totalMg(list) {
@@ -357,7 +403,7 @@
   // Sum of each dose decayed by first-order elimination.
   function caffeineNow() {
     var now = Date.now();
-    return entries.reduce(function (sum, e) {
+    return live().reduce(function (sum, e) {
       var hours = (now - new Date(e.ts).getTime()) / 3600000;
       if (hours < 0 || hours > 48) return sum;
       return sum + e.mg * Math.pow(0.5, hours / HALF_LIFE_HOURS);
@@ -370,23 +416,34 @@
     bed.setHours(Number(parts[0]) || 23, Number(parts[1]) || 0, 0, 0);
     if (bed.getTime() <= Date.now()) bed.setDate(bed.getDate() + 1);
     var t = bed.getTime();
-    return entries.reduce(function (sum, e) {
+    return live().reduce(function (sum, e) {
       var hours = (t - new Date(e.ts).getTime()) / 3600000;
       if (hours < 0) return sum;
       return sum + e.mg * Math.pow(0.5, hours / HALF_LIFE_HOURS);
     }, 0);
   }
 
-  function addEntry(name, mg) {
-    entries.push({ id: Date.now() + "-" + Math.random().toString(36).slice(2, 7), ts: new Date().toISOString(), name: name, mg: mg });
-    write(STORE_ENTRIES, entries);
-    render();
+  function newId() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return Date.now() + "-" + Math.random().toString(36).slice(2, 9);
   }
 
-  function removeEntry(id) {
-    entries = entries.filter(function (e) { return e.id !== id; });
+  function addEntry(name, mg) {
+    entries.push(normalise({ id: newId(), ts: new Date().toISOString(), name: name, mg: mg, updated: Date.now() }));
     write(STORE_ENTRIES, entries);
     render();
+    Sync.soon();
+  }
+
+  // Kept as a tombstone rather than dropped, so the deletion reaches other
+  // devices instead of the row syncing straight back.
+  function removeEntry(id) {
+    entries.forEach(function (e) {
+      if (e.id === id) { e.deleted = true; e.updated = Date.now(); }
+    });
+    write(STORE_ENTRIES, entries);
+    render();
+    Sync.soon();
   }
 
   // ---------- rendering ----------
@@ -637,7 +694,7 @@
     });
 
     $("exportBtn").addEventListener("click", function () {
-      var blob = new Blob([JSON.stringify({ entries: entries, settings: settings }, null, 2)], { type: "application/json" });
+      var blob = new Blob([JSON.stringify({ entries: live(), settings: settings }, null, 2)], { type: "application/json" });
       var url = URL.createObjectURL(blob);
       var a = document.createElement("a");
       a.href = url;
@@ -655,7 +712,9 @@
         try {
           var data = JSON.parse(String(reader.result));
           if (!Array.isArray(data.entries)) throw new Error("no entries");
-          entries = data.entries.filter(function (e) { return e && e.ts && typeof e.mg === "number"; });
+          entries = data.entries
+            .filter(function (e) { return e && e.ts && typeof e.mg === "number"; })
+            .map(normalise);
           if (data.settings) settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
           write(STORE_ENTRIES, entries);
           write(STORE_SETTINGS, settings);
@@ -673,9 +732,12 @@
 
     $("resetBtn").addEventListener("click", function () {
       if (!confirm("Erase every logged drink? This can't be undone.")) return;
-      entries = [];
+      // Tombstone rather than truncate, so the erase reaches synced devices too.
+      var now = Date.now();
+      entries.forEach(function (e) { e.deleted = true; e.updated = now; });
       write(STORE_ENTRIES, entries);
       render();
+      Sync.soon();
     });
   }
 
@@ -695,10 +757,158 @@
     });
   }
 
+  // ---------- sync ----------
+
+  // Pure merge, exercised by test/sync.test.mjs: for each id the side with the
+  // higher `updated` clock wins. Ties keep the local copy.
+  function mergeEntries(localList, remoteList) {
+    var byId = Object.create(null);
+    localList.forEach(function (e) { byId[e.id] = e; });
+    remoteList.forEach(function (r) {
+      var mine = byId[r.id];
+      if (!mine || r.updated > mine.updated) byId[r.id] = r;
+    });
+    return Object.keys(byId).map(function (k) { return byId[k]; });
+  }
+
+  // Rows the server has not got, or has an older copy of.
+  function rowsToPush(merged, remoteList) {
+    var remoteById = Object.create(null);
+    remoteList.forEach(function (r) { remoteById[r.id] = r; });
+    return merged.filter(function (e) {
+      var r = remoteById[e.id];
+      return !r || e.updated > r.updated;
+    });
+  }
+
+  var Sync = (function () {
+    var cfg = window.COFFEE_CONFIG || {};
+    var wanted = !!(cfg.supabaseUrl && cfg.supabaseAnonKey);
+    var configured = wanted && !!window.supabase;
+    var client = null;
+    var user = null;
+    var timer = null;
+    var running = false;
+
+    function status(text, kind) {
+      var el = $("syncStatus");
+      if (!el) return;
+      el.textContent = text || "";
+      el.className = "sync-status" + (kind ? " " + kind : "");
+    }
+
+    function paint() {
+      $("syncSignedOut").hidden = !!user;
+      $("syncSignedIn").hidden = !user;
+      if (user) $("syncWho").textContent = "Signed in as " + user.email;
+      $("footNote").textContent = user
+        ? "Synced to your Supabase project. This browser keeps a full copy, so it works offline."
+        : "Everything is stored in this browser only — nothing is uploaded anywhere.";
+    }
+
+    async function run(manual) {
+      if (!client || !user || running) return;
+      if (!navigator.onLine) { status("Offline — will sync when you're back."); return; }
+      running = true;
+      status("Syncing…");
+      try {
+        var res = await client.from("drinks").select("id,ts,name,mg,deleted,updated");
+        if (res.error) throw res.error;
+
+        var remote = (res.data || []).map(normalise);
+        var merged = mergeEntries(entries.map(normalise), remote);
+        var push = rowsToPush(merged, remote).map(function (e) {
+          return { id: e.id, user_id: user.id, ts: e.ts, name: e.name, mg: e.mg, deleted: e.deleted, updated: e.updated };
+        });
+
+        if (push.length) {
+          var up = await client.from("drinks").upsert(push, { onConflict: "user_id,id" });
+          if (up.error) throw up.error;
+        }
+
+        entries = merged;
+        write(STORE_ENTRIES, entries);
+        render();
+        status("Synced " + timeOfDay(new Date()) + (push.length ? " · sent " + push.length : ""), "ok");
+      } catch (err) {
+        status("Sync failed: " + (err && err.message ? err.message : String(err)), "err");
+      } finally {
+        running = false;
+      }
+    }
+
+    function soon() {
+      if (!client || !user) return;
+      clearTimeout(timer);
+      timer = setTimeout(function () { run(false); }, 2000);
+    }
+
+    function init() {
+      if (!configured) {
+        // No project configured: the tracker simply stays local-only, and the
+        // whole section stays out of the way. But if one *is* configured and
+        // the library didn't arrive, say so rather than silently dropping sync.
+        $("syncSection").hidden = !wanted;
+        if (wanted) {
+          $("syncSignedOut").hidden = true;
+          status("Couldn't load the Supabase library — check your connection, then reload.", "err");
+        }
+        return;
+      }
+      $("syncSection").hidden = false;
+      client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+
+      client.auth.onAuthStateChange(function (event, session) {
+        user = session ? session.user : null;
+        paint();
+        if (user) run(false);
+      });
+
+      client.auth.getSession().then(function (res) {
+        user = res.data && res.data.session ? res.data.session.user : null;
+        paint();
+        if (user) run(false);
+      });
+
+      $("syncSend").addEventListener("click", async function () {
+        var email = $("syncEmail").value.trim();
+        if (!email) { status("Enter your email address first.", "err"); return; }
+        status("Sending…");
+        var res = await client.auth.signInWithOtp({
+          email: email,
+          options: { emailRedirectTo: location.origin + location.pathname }
+        });
+        status(res.error ? "Couldn't send: " + res.error.message : "Check your inbox for the link.", res.error ? "err" : "ok");
+      });
+
+      $("syncNow").addEventListener("click", function () { run(true); });
+
+      $("syncOut").addEventListener("click", async function () {
+        await client.auth.signOut();
+        user = null;
+        paint();
+        status("Signed out. Your log stays in this browser.");
+      });
+
+      window.addEventListener("online", function () { run(false); });
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "visible") run(false);
+      });
+      setInterval(function () { run(false); }, 300000);
+      paint();
+    }
+
+    return { init: init, soon: soon, mergeEntries: mergeEntries, rowsToPush: rowsToPush };
+  })();
+
+  // Exposed for the Node tests in test/.
+  window.__coffee = { mergeEntries: mergeEntries, rowsToPush: rowsToPush, normalise: normalise };
+
   renderDrinkButtons();
   bindCustomForm();
   bindSettings();
   render();
+  Sync.init();
 
   // Keep "still in your system" and relative times honest while the tab stays open.
   setInterval(render, 60000);
