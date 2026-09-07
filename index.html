@@ -301,8 +301,10 @@
         </div>
         <div class="row" style="margin-top:8px">
           <button class="btn" id="syncSignIn">Sign in</button>
+          <button class="btn" id="syncSignUp">Create account</button>
           <button class="btn btn-quiet" id="syncSend">Email me a link instead</button>
         </div>
+        <p class="hint">New here? Pick a password and hit <strong>Create account</strong>. Your log is yours alone — nobody else signing in can see it.</p>
       </div>
       <div id="syncSignedIn" hidden>
         <div class="field" style="padding-top:0">
@@ -1002,6 +1004,35 @@
         status(msg, "err");
       }
 
+      async function createAccount() {
+        var email = $("syncEmail").value.trim();
+        var password = $("syncPassword").value;
+        if (!email || !password) { status("Enter an email and a password to sign up with.", "err"); return; }
+        if (password.length < 6) { status("Pick a password of at least 6 characters.", "err"); return; }
+
+        status("Creating your account…");
+        var res = await client.auth.signUp({ email: email, password: password });
+
+        if (res.error) {
+          var msg = res.error.message || String(res.error);
+          if (/already registered|already been registered/i.test(msg)) {
+            msg = "That email already has an account — use Sign in instead.";
+          } else if (/rate limit/i.test(msg)) {
+            msg = "Supabase is trying to email a confirmation and has hit its hourly limit. Turn off Authentication → Providers → Email → Confirm email, then try again.";
+          } else if (/password/i.test(msg)) {
+            msg = "That password was rejected: " + msg;
+          }
+          status(msg, "err");
+          return;
+        }
+
+        // With email confirmation off, sign-up returns a session and
+        // onAuthStateChange takes over from here.
+        if (res.data && res.data.session) { $("syncPassword").value = ""; return; }
+        status("Account created — check your email to confirm it, then sign in.", "ok");
+      }
+
+      $("syncSignUp").addEventListener("click", createAccount);
       $("syncSignIn").addEventListener("click", signInWithPassword);
       ["syncEmail", "syncPassword"].forEach(function (id) {
         $(id).addEventListener("keydown", function (e) { if (e.key === "Enter") signInWithPassword(); });

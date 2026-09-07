@@ -49,10 +49,12 @@ your phone *and* your laptop, connect a free [Supabase](https://supabase.com) pr
 5. Bump the version on the `config.js` script tag in `index.html` (`?v=2` to `?v=3`,
    and so on). Browsers cache `config.js` aggressively, and without this a stale
    copy will keep the Sync section hidden with no explanation.
-6. **Create your login.** In Supabase go to **Authentication → Users → Add user →
-   Create new user**, enter an email and password, and tick **Auto Confirm User**.
-   Repeat for anyone else who wants their own log.
-7. Reload the tracker, open **Settings & data**, and sign in with that email and password.
+6. **Turn off email confirmation.** Under **Authentication → Providers → Email**, switch
+   off **Confirm email** and save. Sign-ups then work instantly. Leave it on and every
+   new account waits on an email that Supabase's built-in sender rate-limits after a
+   couple an hour.
+7. Reload the tracker, open **Settings & data**, and hit **Create account**. Anyone with
+   the link can do the same, and they appear under **Authentication → Users**.
 
 ### Why not magic links?
 
@@ -66,6 +68,18 @@ provider under **Authentication → Emails → SMTP Settings** and the limit lif
 
 Row-level security scopes every row to whoever wrote it, so two people signing in to the
 same site see two separate logs. There is no shared mode.
+
+### Who can sign up
+
+With email confirmation off, anyone who has the link can create an account, and the
+address they use is never verified. For a page shared with a few people that is usually
+the point. Two things follow from it:
+
+- Accounts are unverified, so treat the email column as a label rather than proof of
+  identity.
+- Nothing caps how many accounts get created. If the link spreads further than intended,
+  turn **Allow new users to sign up** off under **Authentication → Providers → Email** —
+  existing users keep working, new sign-ups stop.
 
 Do the same on your other device and the two keep themselves in step.
 
